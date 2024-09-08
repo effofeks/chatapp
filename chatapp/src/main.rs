@@ -1,19 +1,19 @@
 use std::{io::Error, thread};
 
+use crate::{net::NetEventIn, net::NetEventOut};
+use crate::{ui::UiEventIn, ui::UiEventOut};
 use crossbeam::channel;
-use net::NetEvent;
-use ui::UiEvent;
 
+mod app;
 mod net;
 mod ui;
-mod app;
 
 fn main() -> Result<(), Error> {
-    let (from_ui_tx, from_ui_rx) = channel::unbounded::<UiEvent>();
-    let (to_ui_tx, to_ui_rx) = channel::unbounded::<UiEvent>();
-    let (from_net_tx, from_net_rx) = channel::unbounded::<NetEvent>();
-    let (to_net_tx, to_net_rx) = channel::unbounded::<NetEvent>();
-    
+    let (from_ui_tx, from_ui_rx) = channel::unbounded::<UiEventOut>();
+    let (to_ui_tx, to_ui_rx) = channel::unbounded::<UiEventIn>();
+    let (from_net_tx, from_net_rx) = channel::unbounded::<NetEventOut>();
+    let (to_net_tx, to_net_rx) = channel::unbounded::<NetEventIn>();
+
     let ui_handle = thread::spawn(move || {
         ui::run_ui(from_ui_tx, to_ui_rx).expect("Something went wrong.");
     });

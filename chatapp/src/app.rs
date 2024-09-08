@@ -1,37 +1,123 @@
 use std::io::Error;
 
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::{
+    channel::{Receiver, Sender},
+    select,
+};
 
-use crate::{net::NetEvent, ui::UiEvent};
+use crate::{net::NetEventIn, net::NetEventOut, ui::UiEventIn, ui::UiEventOut};
+
+type AppResult = Result<(), Error>;
 
 pub fn run_app(
-    from_ui: Receiver<UiEvent>,
-    to_ui: Sender<UiEvent>,
-    from_net: Receiver<NetEvent>,
-    to_net: Sender<NetEvent>,
+    from_ui: Receiver<UiEventOut>,
+    to_ui: Sender<UiEventIn>,
+    from_net: Receiver<NetEventOut>,
+    to_net: Sender<NetEventIn>,
 ) -> Result<(), Error> {
-    loop {
-        let event = from_ui.recv().unwrap();
-        match event {
-            UiEvent::Message { from, body } => handle_message(from, body, &to_net),
-            UiEvent::ShutDown {} => {
-                handle_shut_down(&to_net);
-                break;
-            }
+    let mut app = App::new(from_ui, to_ui, from_net, to_net);
+    app.run()
+}
+
+struct App {
+    from_ui: Receiver<UiEventOut>,
+    to_ui: Sender<UiEventIn>,
+    from_net: Receiver<NetEventOut>,
+    to_net: Sender<NetEventIn>,
+    state: State,
+}
+
+impl App {
+    fn new(
+        from_ui: Receiver<UiEventOut>,
+        to_ui: Sender<UiEventIn>,
+        from_net: Receiver<NetEventOut>,
+        to_net: Sender<NetEventIn>,
+    ) -> App {
+        App {
+            from_ui: from_ui,
+            to_ui: to_ui,
+            from_net: from_net,
+            to_net: to_net,
+            state: State::default(),
         }
     }
-    Ok(())
+
+    fn run(&mut self) -> AppResult {
+        while self.state.should_run {
+            select! {
+                recv(self.from_ui) -> event => {
+                    match event.unwrap() {
+                        UiEventOut::Message { from, body } => self.handle_ui_message(from, body),
+                        UiEventOut::ShutDown {} => self.handle_shut_down(),
+                    }
+                }
+                recv(self.from_net) -> event => {
+                    match event.unwrap() {
+                        NetEventOut::Message { from, body } => self.handle_net_message(from , body),
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_ui_message(&mut self, from: String, body: String) {
+        self.handle_message(&from, &body);
+        self.to_net
+            .send(NetEventIn::Message {
+                from: from,
+                body: body,
+            })
+            .unwrap();
+    }
+
+    fn handle_net_message(&mut self, from: String, body: String) {
+        self.handle_message(&from, &body);
+    }
+
+    fn handle_message(&mut self, from: &String, body: &String) {
+        self.state.add_message(&from, &body);
+        let event = UiEventIn::Messages {
+            messages: self.state.messages.clone(),
+        };
+        self.to_ui.send(event).unwrap();
+    }
+
+    fn handle_shut_down(&mut self) {
+        self.to_net.send(NetEventIn::ShutDown {}).unwrap();
+        self.state.shutdown();
+    }
 }
 
-fn handle_message(from: String, body: String, to_net: &Sender<NetEvent>) {
-    to_net
-        .send(NetEvent::Message {
-            from: from,
-            body: body,
-        })
-        .unwrap();
+#[derive(Clone)]
+pub struct Message {
+    pub from: String,
+    pub body: String,
 }
 
-fn handle_shut_down(to_net: &Sender<NetEvent>) {
-    to_net.send(NetEvent::ShutDown {}).unwrap();
+struct State {
+    should_run: bool,
+    messages: Vec<Message>,
+}
+
+impl State {
+    fn default() -> State {
+        State {
+            should_run: true,
+            messages: vec![],
+        }
+    }
+
+    fn shutdown(&mut self) {
+        self.should_run = false;
+    }
+
+    fn add_message(&mut self, from: &String, body: &String) {
+        let message = Message {
+            from: from.clone(),
+            body: body.clone(),
+        };
+        self.messages.push(message);
+    }
 }
