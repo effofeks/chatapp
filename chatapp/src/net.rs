@@ -47,7 +47,6 @@ impl NetManager {
     }
 
     fn run(&self) -> Result<(), Error> {
-        self.handle_recv_message("Robyn".to_string(), "I am stinky".to_string());
         loop {
             let result = self
                 .from_app

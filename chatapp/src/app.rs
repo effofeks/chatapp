@@ -9,6 +9,8 @@ use crate::{net::NetEventIn, net::NetEventOut, ui::UiEventIn, ui::UiEventOut};
 
 type AppResult = Result<(), Error>;
 
+const USER_NAME: &str = "Robyn";
+
 pub fn run_app(
     from_ui: Receiver<UiEventOut>,
     to_ui: Sender<UiEventIn>,
@@ -48,8 +50,8 @@ impl App {
             select! {
                 recv(self.from_ui) -> event => {
                     match event.unwrap() {
-                        UiEventOut::Message { from, body } => self.handle_ui_message(from, body),
-                        UiEventOut::ShutDown {} => self.handle_shut_down(),
+                        UiEventOut::Message { body } => self.handle_ui_message(body),
+                        UiEventOut::ShutDown {} => self.handle_shutdown(),
                     }
                 }
                 recv(self.from_net) -> event => {
@@ -62,11 +64,11 @@ impl App {
         Ok(())
     }
 
-    fn handle_ui_message(&mut self, from: String, body: String) {
-        self.handle_message(&from, &body);
+    fn handle_ui_message(&mut self, body: String) {
+        self.handle_message(&USER_NAME.to_string(), &body);
         self.to_net
             .send(NetEventIn::Message {
-                from: from,
+                from: USER_NAME.to_string(),
                 body: body,
             })
             .unwrap();
@@ -84,10 +86,11 @@ impl App {
         self.to_ui.send(event).unwrap();
     }
 
-    fn handle_shut_down(&mut self) {
+    fn handle_shutdown(&mut self) {
         self.to_net.send(NetEventIn::ShutDown {}).unwrap();
         self.state.shutdown();
     }
+
 }
 
 #[derive(Clone)]
